@@ -6,18 +6,20 @@ pipeline {
         APP_NAME = "activation"
         APP_DIR = "applications/activation"
         CHART_DIR = "${APP_DIR}/helm"
-        OCP_API = "https://console-openshift-console.apps-crc.testing"  // update as needed
+        OCP_API = "https://console-openshift-console.apps-crc.testing"
     }
 
     stages {
         stage('Checkout') {
             steps {
+                echo "Starting Checkout stage"
                 git url: 'https://github.com/frazzi-izeno/cicd.git', credentialsId: 'github-creds'
             }
         }
 
         stage('Build Docker Image') {
             steps {
+                echo "Starting Build Docker Image stage"
                 dir(APP_DIR) {
                     sh "podman build -t ${APP_NAME}:latest ."
                 }
@@ -26,6 +28,7 @@ pipeline {
 
         stage('Login to OpenShift & Push Image') {
             steps {
+                echo "Starting Login to OpenShift & Push Image stage"
                 withCredentials([string(credentialsId: 'ocp-token', variable: 'OCP_TOKEN')]) {
                     script {
                         sh """
@@ -42,6 +45,7 @@ pipeline {
 
         stage('Deploy with Helm') {
             steps {
+                echo "Starting Deploy with Helm stage"
                 dir(CHART_DIR) {
                     sh """
                         helm upgrade --install ${APP_NAME} . --namespace ${PROJECT} --create-namespace
