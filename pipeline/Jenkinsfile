@@ -6,7 +6,7 @@ pipeline {
         APP_NAME = "activation"
         APP_DIR = "applications/activation"
         CHART_DIR = "${APP_DIR}/helm"
-        OCP_API = "https://console-openshift-console.apps-crc.testing"  // adjust as needed
+        OCP_API = "https://console-openshift-console.apps-crc.testing"  // update as needed
     }
 
     stages {
@@ -29,9 +29,9 @@ pipeline {
                 withCredentials([string(credentialsId: 'ocp-token', variable: 'OCP_TOKEN')]) {
                     script {
                         sh """
-                            oc login --token=$OCP_TOKEN --server=${OCP_API}
+                            oc login --token=${OCP_TOKEN} --server=${OCP_API}
                             oc new-project ${PROJECT} || true
-                            podman login -u $(oc whoami) -p $OCP_TOKEN --tls-verify=false image-registry.openshift-image-registry.svc:5000
+                            podman login -u \$(oc whoami) -p ${OCP_TOKEN} --tls-verify=false image-registry.openshift-image-registry.svc:5000
                             podman tag ${APP_NAME}:latest image-registry.openshift-image-registry.svc:5000/${PROJECT}/${APP_NAME}:latest
                             podman push --tls-verify=false image-registry.openshift-image-registry.svc:5000/${PROJECT}/${APP_NAME}:latest
                         """
@@ -44,8 +44,7 @@ pipeline {
             steps {
                 dir(CHART_DIR) {
                     sh """
-                        helm upgrade --install ${APP_NAME} . \
-                          --namespace ${PROJECT} --create-namespace
+                        helm upgrade --install ${APP_NAME} . --namespace ${PROJECT} --create-namespace
                     """
                 }
             }
