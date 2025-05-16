@@ -1,0 +1,12 @@
+image:
+  repository: image-registry.openshift-image-registry.svc:5000/activation-project/activation
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  name: activation
+  port: 80
+  targetPort: 8080
+
+replicaCount: 1
+

@@ -1,76 +1,64 @@
 pipeline {
-  agent any
+    agent any
 
-  environment {
-    IMAGE_NAME = "activation"
-    IMAGE_TAG = "latest"
-    REGISTRY = "default-route-openshift-image-registry.apps-crc.testing"
-    PROJECT = "activation-project"  // Replace with your actual OpenShift project
-    GIT_BRANCH = "master"            // Set your desired branch here
-  }
-
-  stages {
-    stage('Clone') {
-      steps {
-        echo "Cloning repo branch: ${env.GIT_BRANCH}..."
-        git branch: "${env.GIT_BRANCH}", credentialsId: 'git', url: 'git@github.com:frazzi-izeno/cicd.git'
-      }
+    environment {
+        PROJECT = "activation-project"
+        APP_NAME = "activation"
+        APP_DIR = "applications/activation"
+        CHART_DIR = "${APP_DIR}/helm"
+        OCP_API = "https://console-openshift-console.apps-crc.testing"  // adjust as needed
     }
 
-    stage('Build Image') {
-      steps {
-        echo "Building image..."
-        script {
-          sh "podman build -t ${REGISTRY}/${PROJECT}/${IMAGE_NAME}:${IMAGE_TAG} ."
+    stages {
+        stage('Checkout') {
+            steps {
+                git url: 'https://github.com/frazzi-izeno/cicd.git', credentialsId: 'github-creds'
+            }
         }
-      }
-    }
 
-    stage('Login to Registry') {
-      steps {
-        echo "Logging into OpenShift registry..."
-        script {
-          def token = sh(script: "oc whoami -t", returnStdout: true).trim()
-          def user = sh(script: "oc whoami", returnStdout: true).trim()
-          echo "User: ${user}"
-          // Login command uses token as password
-          sh "podman login -u ${user} -p ${token} ${REGISTRY}"
+        stage('Build Docker Image') {
+            steps {
+                dir(APP_DIR) {
+                    sh "podman build -t ${APP_NAME}:latest ."
+                }
+            }
         }
-      }
-    }
 
-    stage('Push Image') {
-      steps {
-        echo "Pushing image to registry..."
-        sh "podman push ${REGISTRY}/${PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}"
-      }
-    }
-
-    stage('Deploy with Helm') {
-      steps {
-        echo "Deploying with Helm..."
-        script {
-          sh """
-            helm upgrade --install activation-release ./applications/activation \\
-              --set image.repository=${REGISTRY}/${PROJECT}/${IMAGE_NAME} \\
-              --set image.tag=${IMAGE_TAG} \\
-              --namespace ${PROJECT} --create-namespace
-          """
+        stage('Login to OpenShift & Push Image') {
+            steps {
+                withCredentials([string(credentialsId: 'ocp-token', variable: 'OCP_TOKEN')]) {
+                    script {
+                        sh """
+                            oc login --token=$OCP_TOKEN --server=${OCP_API}
+                            oc new-project ${PROJECT} || true
+                            podman login -u $(oc whoami) -p $OCP_TOKEN --tls-verify=false image-registry.openshift-image-registry.svc:5000
+                            podman tag ${APP_NAME}:latest image-registry.openshift-image-registry.svc:5000/${PROJECT}/${APP_NAME}:latest
+                            podman push --tls-verify=false image-registry.openshift-image-registry.svc:5000/${PROJECT}/${APP_NAME}:latest
+                        """
+                    }
+                }
+            }
         }
-      }
+
+        stage('Deploy with Helm') {
+            steps {
+                dir(CHART_DIR) {
+                    sh """
+                        helm upgrade --install ${APP_NAME} . \
+                          --namespace ${PROJECT} --create-namespace
+                    """
+                }
+            }
+        }
     }
 
-    stage('Verify Deployment') {
-      steps {
-        echo "Verifying deployment..."
-        sh "oc get pods -n ${PROJECT}"
-      }
+    post {
+        success {
+            echo '🎉 Deployment succeeded!'
+        }
+        failure {
+            echo '❌ Deployment failed.'
+        }
     }
-  }
-
-  post {
-    always {
-      echo "Pipeline finished"
-    }
-  }
 }
+
