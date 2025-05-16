@@ -1,12 +1,11 @@
 pipeline {
-    agent { label 'your-label' }
+    agent any
 
     stages {
-        stage('Test echo') {
+        stage('Debug') {
             steps {
-                echo "This stage is running on ${env.NODE_NAME}"
+                echo "✅ Pipeline is running on ${env.NODE_NAME}"
             }
         }
     }
 }
-
