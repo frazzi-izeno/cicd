@@ -1,11 +1,69 @@
-pipeline {
-    agent any
+pipeline { 
+	agent {
+        kubernetes {
+            yaml context.yamlDefinition(identifier:JOB_NAME,namespace:params.openshift_namespace,cache:true)
+        }
+    }
+	options {
+      skipDefaultCheckout true
+    }
+    environment {
+        PROJECT = "activation-project"
+        APP_NAME = "activation"
+        APP_DIR = "applications/activation"
+        CHART_DIR = "${APP_DIR}/helm"
+        OCP_API = "https://console-openshift-console.apps-crc.testing"  // update as needed
+    } 
 
     stages {
-        stage('Debug') {
+        stage('Checkout') {
             steps {
-                echo "✅ Pipeline is running on ${env.NODE_NAME}"
+                git url: 'https://github.com/frazzi-izeno/cicd.git', credentialsId: 'github-creds'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                dir(APP_DIR) {
+                    sh "podman build -t ${APP_NAME}:latest ."
+                }
+            }
+        }
+
+        stage('Login to OpenShift & Push Image') {
+            steps {
+                withCredentials([string(credentialsId: 'ocp-token', variable: 'OCP_TOKEN')]) {
+                    script {
+                        sh """
+                            oc login --token=${OCP_TOKEN} --server=${OCP_API}
+                            oc new-project ${PROJECT} || true
+                            podman login -u \$(oc whoami) -p ${OCP_TOKEN} --tls-verify=false image-registry.openshift-image-registry.svc:5000
+                            podman tag ${APP_NAME}:latest image-registry.openshift-image-registry.svc:5000/${PROJECT}/${APP_NAME}:latest
+                            podman push --tls-verify=false image-registry.openshift-image-registry.svc:5000/${PROJECT}/${APP_NAME}:latest
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Deploy with Helm') {
+            steps {
+                dir(CHART_DIR) {
+                    sh """
+                        helm upgrade --install ${APP_NAME} . --namespace ${PROJECT} --create-namespace
+                    """
+                }
             }
         }
     }
+
+    post {
+        success {
+            echo '🎉 Deployment succeeded!'
+        }
+        failure {
+            echo '❌ Deployment failed.'
+        }
+    }
 }
+
