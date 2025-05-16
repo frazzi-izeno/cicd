@@ -1,0 +1,76 @@
+pipeline {
+  agent any
+
+  environment {
+    IMAGE_NAME = "activation"
+    IMAGE_TAG = "latest"
+    REGISTRY = "default-route-openshift-image-registry.apps-crc.testing"
+    PROJECT = "activation-project"  // Replace with your actual OpenShift project
+    GIT_BRANCH = "master"            // Set your desired branch here
+  }
+
+  stages {
+    stage('Clone') {
+      steps {
+        echo "Cloning repo branch: ${env.GIT_BRANCH}..."
+        git branch: "${env.GIT_BRANCH}", credentialsId: 'git', url: 'git@github.com:frazzi-izeno/cicd.git'
+      }
+    }
+
+    stage('Build Image') {
+      steps {
+        echo "Building image..."
+        script {
+          sh "podman build -t ${REGISTRY}/${PROJECT}/${IMAGE_NAME}:${IMAGE_TAG} ."
+        }
+      }
+    }
+
+    stage('Login to Registry') {
+      steps {
+        echo "Logging into OpenShift registry..."
+        script {
+          def token = sh(script: "oc whoami -t", returnStdout: true).trim()
+          def user = sh(script: "oc whoami", returnStdout: true).trim()
+          echo "User: ${user}"
+          // Login command uses token as password
+          sh "podman login -u ${user} -p ${token} ${REGISTRY}"
+        }
+      }
+    }
+
+    stage('Push Image') {
+      steps {
+        echo "Pushing image to registry..."
+        sh "podman push ${REGISTRY}/${PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}"
+      }
+    }
+
+    stage('Deploy with Helm') {
+      steps {
+        echo "Deploying with Helm..."
+        script {
+          sh """
+            helm upgrade --install activation-release ./applications/activation \\
+              --set image.repository=${REGISTRY}/${PROJECT}/${IMAGE_NAME} \\
+              --set image.tag=${IMAGE_TAG} \\
+              --namespace ${PROJECT} --create-namespace
+          """
+        }
+      }
+    }
+
+    stage('Verify Deployment') {
+      steps {
+        echo "Verifying deployment..."
+        sh "oc get pods -n ${PROJECT}"
+      }
+    }
+  }
+
+  post {
+    always {
+      echo "Pipeline finished"
+    }
+  }
+}
